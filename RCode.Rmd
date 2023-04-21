@@ -756,3 +756,524 @@ mwell2$predicted=predict(MWmod3c) #prediction values from model to our train dat
 par(mfrow=c(1,1), bty='n',mar = c(5, 4, .1, .1), cex=1.1,pch=16)
 plot(mwell2$predicted, mwell2$mwb) #plot predicted versus observed data points
 ```
+
+# Week 4: Structural Equation Modelling
+## Confirmatory factor analysis
+
+## Theoretical part
+
+### Data simulation
+
+```{r}
+set.seed(456)
+Babies=data.frame(Age=round(runif(100,1,30)), Weight=rnorm(100,4000,500))
+Babies$Height=rnorm(100,40+0.2*Babies$Age+0.004*Babies$Weight, 5)
+Babies$Gender=rbinom(100,1,0.5)
+Babies$Crawl=rbinom(100,1,0.031*Babies$Age+0.00001*Babies$Weight-0.06*Babies$Gender)
+Babies$TummySleep=rbinom(100,1,0.5)
+Babies$PhysicalSt=rnorm(100,10+0.3*Babies$Height+0.1*Babies$Age-0.06*Babies$Gender+0.15*Babies$TummySleep,5)
+Babies$Gender=as.factor(Babies$Gender)
+levels(Babies$Gender)=c('Girls','Boys')
+```
+
+```{r}
+#install.packages('faux')
+require(faux)
+set.seed(456) #seed specification for the data simulation
+
+#Here I am specifying a correlation matrix for 6 variables. The correlation matrix has 6*6 = 36 values and codes all correlations for variable-by-variable relations. The first value in the first row is correlation of var1 with itself, then we go to var1-var2, var1-var3,... Second row starts with the var2-var1, then var2-var2... 
+
+cmat <- c(1, .4,.4, .1, .1, .1,
+          .4, 1,.3, .1, .1, .1,
+          .4,.2, 1, .1, .1, .1,
+          .1,.1,.1,  1, .4, .4,
+          .1,.1,.1, .4,  1, .2,
+          .1,.1,.1, .4, .2,  1)
+
+vars<-rnorm_multi(n=100, 6,30,5,cmat) # now we take that correlation matrix and simulate 6 variables with 100 values with mean of 30 and sd of 5. 
+
+names(vars)=c('TimeOnTummy','PreciseLegMoves','PreciseHandMoves','Babbling','Screeching','VocalImitation') #Naming of the columns in the vars dataset. 
+
+Babies=cbind(Babies,vars) #combination of Babies data set with new variables. Cbind (Column bind) function adds new columns to Babies dataset. 
+```
+
+### Covariance matrix
+
+```{r}
+Matrix<-cov(vars)
+Matrix[upper.tri(Matrix)]<-NA
+knitr::kable(Matrix, format = 'html')
+```
+
+### Model building
+
+```{r, message=FALSE, warning=FALSE}
+#install.packages('lavaan')
+require(lavaan) #package for our cfa function
+model1<-'
+motor =~ TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ Babbling + Screeching + VocalImitation
+' # our motor LV is regressed onto TimeOnTummy, PreciseLegMoves and PreciseHandMoves, while our verbal LV is regressed onto Babbling, Screeching and VocalImitation. We used reflective coding =~ for LVs indicating that we assume that our LV is causing/influencing behaviour measured in our dataset. 
+
+fit1<-cfa(model1, data=Babies) #fitting the model
+summary(fit1) #summary of the results
+```
+
+### Summary with standardised values
+
+```{r}
+summary(fit1, standardized=TRUE) #with standardised values 
+```
+
+### Model 2: scaling the factors by seting variance to 1: 
+
+```{r}
+model2<-'
+motor =~ NA*TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ NA*Babbling + Screeching + VocalImitation
+motor ~~ 1*motor
+verbal ~~ 1*verbal
+'
+# In this situation we used same specification of the latent factors, but we change the way how the scale of latent variables is defined. We are defining the scale by seting variance of LVs to 1, this is done with motor ~~ 1*motor and verbal ~~ 1*verbal. We also include NA* to two first variables (that are always used to scale LVs) that we would like to estimate.  
+
+fit2<-cfa(model2, data=Babies)
+summary(fit2, standardized=TRUE)
+```
+
+### Model 3: Scaling LVs by effect coding
+
+```{r}
+model3<-'
+motor =~ NA*TimeOnTummy+a*TimeOnTummy + b*PreciseLegMoves + c*PreciseHandMoves
+verbal =~ NA*Babbling+a1*Babbling + b1*Screeching + c1*VocalImitation
+a+b+c==3
+a1+b1+c1==3
+'
+
+# In this situation we used same specification of the latent factors, but we change the way how the scale of latent variables is defined. We are defining the scale by constraining the loadings of manifest variables to latent variable to be the exactly as number of manifest variables loaded onto factor (3 manifest variable == 3). We need to specify that we would like for model to estimate the loading of the first manifest variable:  NA*TimeOnTummy, but also label coefficients with a, b, c, and finally make a constraint that a+b+c == 3 
+
+fit3<-cfa(model3, data=Babies)
+summary(fit3, standardized=TRUE)
+```
+
+### Adding intercepts to our model:
+
+```{r}
+model3<-'
+motor =~ TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ Babbling + Screeching + VocalImitation
+TimeOnTummy ~ 1
+PreciseLegMoves ~ 1
+PreciseHandMoves ~ 1
+Babbling ~ 1
+Screeching ~ 1 
+VocalImitation ~ 1'
+# Model stays again identical to the first one (scaled by the measure of first variables), however we add TimeOnTummy ~ 1 and this is identical for all measured variables.
+fit3<-cfa(model3, data=Babies)
+summary(fit3, standardized=TRUE, fit.measures=T)
+```
+
+### Indices of global model fit
+
+```{r}
+summary(fit1, fit.measures=TRUE)
+```
+
+### Structural equation model: CFA + Path
+
+```{r}
+model4<-'
+#CFA model
+motor =~ TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ Babbling + Screeching + VocalImitation
+
+#Path model
+motor ~ Age + Weight
+verbal ~ Age + Weight
+'
+
+fit4<-sem(model4, data=Babies)
+summary(fit4, standardized=TRUE)
+```
+
+### Measurement invariance
+#### Configural invariance
+
+```{r, warning=FALSE, message=FALSE}
+modelMI<-'
+motor =~ TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ Babbling + Screeching + VocalImitation
+'
+
+fitMIC<-cfa(modelMI, data=Babies, group='Gender') # for configural invariance we can specify group gender and leave all other parameters to be unrestricted
+summary(fitMIC)
+```
+
+#### Metric invariance
+
+In the case of metric invariance we would like to compare loadings on the factor structures between the two groups. If there are no differences between the models (model without restricted loadings fitting worse), then we have same factor loadings between the groups. 
+
+```{r, warning=FALSE, message=FALSE}
+modelMI<-'
+motor =~ TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ Babbling + Screeching + VocalImitation
+'
+
+fitMIM<-cfa(modelMI, data=Babies, group='Gender',group.equal='loadings') #we restrict the loadings on factors between two groups. 
+summary(fitMIM)
+```
+
+```{r}
+#install.packages('semTools')
+require(semTools)
+summary(compareFit(fitMIC, fitMIM)) # compareFit compares our two models and gives as an information of whether one is worse than the other. If model with restricted loadings is worse that is an indication that loadings are different. 
+```
+
+#### Scalar invariance
+
+In the case of scalar invariance we would like to restrict both loadings and intercepts between two groups. Similar to the previous two invariances, when we compare the models if the scalar invariance model fits worse than metric invariance or configural invariance, then we can assume that intercepts or means are not identical between the groups. 
+
+```{r}
+modelMI<-'
+motor =~ TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ Babbling + Screeching + VocalImitation
+'
+
+fitMISc<-cfa(modelMI, data=Babies, group='Gender',group.equal=c('loadings','intercepts')) #Restriction of the loadings and intercepts 
+summary(fitMISc)
+```
+
+```{r}
+summary(compareFit(fitMIM,fitMISc)) # comparison between measurement invariance and scalar invariance model
+```
+
+#### Strict invariance 
+
+Strict invariance restricts loadings, intercepts and error variances. In this case, not only that we are assuming that all direct effects are identical (loadings and intercepts), but we also test whether unexplained variance is identical. This is akin to saying that the same data generating proces and structural effects can be assumed between the two groups. 
+
+```{r}
+modelMI<-'
+motor =~ TimeOnTummy + PreciseLegMoves + PreciseHandMoves
+verbal =~ Babbling + Screeching + VocalImitation
+'
+
+fitMISt<-cfa(modelMI, data=Babies, group='Gender',group.equal=c('loadings','intercepts','residuals')) #restricting loadings, intercepts and residuals
+summary(fitMISt)
+```
+
+```{r}
+summary(compareFit(fitMISc,fitMISt)) # model comparison
+```
+
+#### Finding differences between the models
+If you have differences in the fit of the model, for example, between Measurement invariance and configural invariance model, you would like to see which parameters are different between the groups. You can do that using this function:
+
+```{r}
+lavTestScore(fitMISc)
+```
+
+## Practical part:
+
+```{r, message=FALSE, warning=FALSE}
+#install.packages('sem')
+require(sem)
+data('HS.data') # reading the HS data
+```
+
+### Descriptives: 
+
+```{r}
+dim(HS.data) #dimensions of the dataset
+summary(HS.data[,c('visual','cubes','flags','paragrap','sentence','wordm','addition','counting','straight')]) # descriptive statistics for specific variables in our dataset
+```
+
+### Plots: 
+
+```{r, warning=FALSE, message=FALSE,out.width = '40%',fig.align='center'}
+#install.packages('psych')
+require(psych)
+scatter.hist(x=HS.data$visual,y=HS.data$cubes, density = T, ellipse = T) # bi-variate scatterplot for our data
+```
+
+### Specification of the model: 
+
+```{r}
+detach('package:sem')
+fact3<-'
+spatial =~ visual + cubes + flags
+verbal =~ paragrap + sentence + wordm
+speed =~ addition + counting + straight
+'
+
+fact3fit<-cfa(fact3, data=HS.data)
+summary(fact3fit, fit.measures=TRUE ,standardized=TRUE)
+```
+
+### Explained variance - R2
+
+```{r}
+inspect(fact3fit,'r2') #get r2 for our measured variables
+```
+
+### Multivariate normality
+
+```{r, warning=FALSE, message=FALSE}
+#install.packages('MVN')
+require(MVN)
+test<-mvn(HS.data[,c('visual','cubes','flags','paragrap','sentence','wordm','addition','counting','straight')], mvnTest = 'royston') # multivariate normality for the variables used in our model
+test$multivariateNormality
+```
+
+If we do not have multivariate normality, we can calculate robust errors and different test statistic
+
+```{r}
+fact3fitRob<-cfa(fact3, data=HS.data, se='robust.sem',test='satorra.bentler')
+summary(fact3fitRob,standardized=TRUE)
+```
+
+### Modification indices
+
+Finally, we can check modification indices and include some of them into our model. 
+
+```{r}
+mi <- modindices(fact3fitRob)
+mi
+```
+
+### Change the model
+
+```{r}
+fact3A<-'
+spatial =~ visual + cubes + flags + straight + addition
+verbal =~ paragrap + sentence + wordm
+speed =~ addition + counting + straight
+'
+
+fact3AfitRob<-cfa(fact3A, data=HS.data,se='robust.sem',test='satorra.bentler')
+summary(fact3AfitRob, fit.measures=TRUE ,standardized=TRUE)
+```
+
+### Comparison of the new and original model
+
+```{r}
+diff<-compareFit(fact3fitRob, fact3AfitRob)
+summary(diff)
+```
+
+## Path model
+
+Adding more variables to our data. It just keeps growing: 
+
+```{r, warning=FALSE, message=FALSE}
+library(truncnorm)
+require(lavaan)
+set.seed(456)
+Babies=data.frame(Age=round(runif(100,1,30)), Weight=rnorm(100,4000,500))
+Babies$Height=rnorm(100,40+0.2*Babies$Age+0.004*Babies$Weight, 5)
+Babies$Sex=rbinom(100,1,0.5)
+Babies$Nutrition=rtruncnorm(n=100, a=0, b=30, mean=5, sd=10)
+Babies$PhyExer=rnorm(100, 180,50)
+Babies$GMA=rnorm(100, 180,50)
+Babies$SocialBeh=rnorm(100, 180+Babies$PhyExer,80)
+Babies$TummySleep=rbinom(100,1,0.5)
+Babies$CognitiveAb=rnorm(100,10+7*Babies$Nutrition+0.1*Babies$PhyExer+3*Babies$GMA+0.03*Babies$PhyExer*Babies$SocialBeh,5)
+Babies$Sex=as.factor(Babies$Sex)
+levels(Babies$Sex)=c('Girls','Boys')
+```
+
+### Fitting the model:
+
+```{r}
+#install.packages('lavaan') - we need lavaan package to fit structural equation models, both path models and confirmatory factor analysis
+require(lavaan)
+#model has to be written in a separate object. We have quotation marks ('') to indicate that this is a textual input.
+modelAbility<-'
+SocialBeh~Nutrition+PhyExer+GMA
+CognitiveAb~SocialBeh+Nutrition+GMA
+'
+#we use sem function to fit the model, while we specify that data is in the dataset Babies 
+fit1<-sem(modelAbility, data=Babies)
+summary(fit1)
+```
+
+We can also plot the estimates of our model: 
+
+```{r, warning=FALSE, message=FALSE, fig.width=12, fig.height=5, fig.align='center'}
+#install.packages('tidySEM')
+require('tidySEM')
+graph_sem(fit1, variance_diameter=.2)
+```
+
+### Indices of the model fit:
+
+```{r}
+summary(fit1, fit.measures=TRUE) # we need to include fit.measures=TRUE for lavaan to print them out
+```
+
+### Model modifications:
+
+```{r , warning=FALSE, message=FALSE}
+modelAbility2<-'
+SocialBeh~Nutrition+PhyExer+GMA
+CognitiveAb~SocialBeh+Nutrition+GMA+PhyExer
+'
+fit2<-sem(modelAbility2, data=Babies)
+summary(fit2, fit.measures=TRUE)
+```
+
+### Model comparison:
+
+```{r}
+lavTestLRT(fit1,fit2) # we are comparing fit of the first and the second model
+```
+
+Check the modification indices:
+
+```{r}
+modindices(fit1, sort=TRUE) #we are checking them for the first model, high values indicate potential pathways that we could include and improve the model fit
+```
+
+### Calculation of the indirect pathways:
+
+```{r, warning=FALSE, message=FALSE}
+modelAbilityPath<-'
+SocialBeh~Nutrition+a*PhyExer+GMA
+CognitiveAb~b*SocialBeh+c*Nutrition+GMA
+
+indirect := a*b
+direct := c
+total := indirect + direct
+'
+# multiplication sign (*) labels the parameter - assigns regression coefficient (PhyExer) to value a. 
+ #using := we can specify calculations in the sem. You can do any other type of calculaton also, eg. a^2
+
+fitPath<-sem(modelAbilityPath, data=Babies)
+summary(fitPath)
+```
+
+### PiecewiseSEM package
+
+```{r, warning=FALSE, message=FALSE}
+#install.packages('piecewiseSEM)
+require(piecewiseSEM)
+model1<-psem(lm(SocialBeh~Nutrition+PhyExer+GMA, data=Babies),
+             lm(CognitiveAb~SocialBeh+Nutrition+GMA, data=Babies)) # combined linear regression functions
+summary(model1, .progressBar=FALSE)
+```
+
+## Practical aspect of the lecture
+
+Getting the data
+
+```{r}
+NBAPath<-read.table('NBApath.txt', sep='\t', header=T)
+```
+
+### Summary of the NBA data
+
+```{r}
+summary(NBAPath)
+```
+
+### Correlation matrix
+
+```{r}
+cor(NBAPath[,c(2,5:7)]) #correlation between second, fifth, and seventh variable in the NBAPath dataframe
+```
+
+### Univariate plots
+
+```{r, fig.width=12, fig.height=5, fig.align='center'}
+par(mfrow=c(1,2), bty='n',mar = c(5, 4, .1, .1), cex=1.1, pch=16)
+plot(density(NBAPath$PER), main='')
+plot(density(NBAPath$PCT), main='')
+```
+
+### Bivariate plots
+
+```{r,fig.width=12, fig.height=5, fig.align='center'}
+par(mfrow=c(1,2), bty='n',mar = c(5, 4, .1, .1), cex=1.1, pch=16)
+plot(NBAPath$Age, NBAPath$PER)
+plot(NBAPath$GP, NBAPath$PER)
+```
+
+### Estimating the model
+
+```{r}
+NBAmod1<-'
+GP~b*Age
+PER~a*Age+c*GP
+
+dir := a
+ind := b*c
+tot := dir + ind
+'
+NBAfit1<-sem(NBAmod1, data=NBAPath)
+summary(NBAfit1)
+```
+
+### R2 and other measures of fit
+
+```{r}
+inspect(NBAfit1, 'r2')
+-2*logLik(NBAfit1) # deviance 
+AIC(NBAfit1) # Akaike information criterion
+```
+
+### Respecification of the model
+
+```{r}
+NBAmod2<-'
+GP~b*Age
+PER~c*GP
+
+ind := b*c
+'
+NBAfit2<-sem(NBAmod2, data=NBAPath)
+summary(NBAfit2, fit.measures=T)
+```
+
+### Model comparison
+
+```{r, warning=FALSE, message=FALSE}
+#install.packages('semTools')
+require(semTools)
+diff<-compareFit(NBAfit1, NBAfit2)
+summary(diff)
+```
+
+### Respecification of the model 2
+
+```{r, warning=FALSE, message=FALSE}
+NBAmod3<-'
+GP~b*Age
+PER~a*Age+c*GP
+PCT~d*PER
+ind1 := b*c*d
+ind2 := a*d
+tot := ind1 + ind2
+'
+NBAfit3<-sem(NBAmod3, data=NBAPath)
+summary(NBAfit3, fit.measures=T)
+```
+
+### Parameter estimates 
+
+```{r}
+parameterestimates(NBAfit3, boot.ci.type ='bca.simple', standardized = T)
+#adding bca.simple we are getting bootstrapped intervals using adjusted bootstrap percentile method
+```
+
+### Bootstrapping our model
+
+```{r, message=FALSE, warning=FALSE}
+#install.packages('bootstrap')
+require(bootstrap)
+boot<-bootstrapLavaan(NBAfit3, R=1000)
+summary(boot)
+```
+
+```{r}
+sessionInfo()
+```
+
